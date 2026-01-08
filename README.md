@@ -48,3 +48,30 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Build APK (WebView wrapper)
+
+This project now wraps your website in a WebView. To build a production APK or AAB using EAS:
+
+1. Install EAS CLI:
+
+```bash
+npm install -g eas-cli
+```
+
+2. Login to Expo (follow prompts):
+
+```bash
+eas login
+```
+
+3. Configure credentials and build (preview builds an APK):
+
+```bash
+eas build -p android --profile preview
+# or production (AAB):
+eas build -p android --profile production
+```
+
+After the build completes, download the generated APK from the Expo dashboard and install it on your device.
+

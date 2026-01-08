@@ -1,17 +1,20 @@
 {
   "expo": {
-    "name": "thennilavu-app",
+    "name": "Thennilavu",
     "slug": "thennilavu-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/app.png",
     "scheme": "thennilavuapp",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.thennilavu.app"
     },
     "android": {
+      "package": "com.thennilavu.app",
+      "icon": "./assets/images/app.png",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -25,7 +28,7 @@
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-    "plugins": [
+      "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
@@ -43,6 +46,17 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dbe2a5e2-b4d7-4868-ab86-a6802109ec1d"
+      }
+    }
+    ,
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "ON_ERROR_RECOVERY"
     }
   }
 }

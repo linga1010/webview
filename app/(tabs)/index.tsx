@@ -1,98 +1,189 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useRef, useEffect, useState } from 'react';
+import { BackHandler, Alert, ActivityIndicator, StyleSheet, View, Platform } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
+import * as Linking from 'expo-linking';
+import NetInfo from '@react-native-community/netinfo';
+import WebViewErrorOverlay, { ErrorKind } from '../components/webview-error-overlay';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const START_URL = 'https://app.thennilavu.lk/';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const webRef = useRef<any>(null);
+  const [canGoBack, setCanGoBack] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [errorKind, setErrorKind] = useState<ErrorKind | null>(null);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  useEffect(() => {
+    const onBackPress = () => {
+      if (canGoBack && webRef.current) {
+        webRef.current.goBack();
+        return true;
+      }
+      Alert.alert('', 'Do you want to exit the app?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Exit', onPress: () => BackHandler.exitApp && BackHandler.exitApp() },
+      ]);
+      return true;
+    };
+
+    // Register back handler safely — different RN versions/platforms expose
+    // different APIs (addEventListener returns a subscription with `remove()`
+    // in newer versions). Also on web BackHandler may be missing.
+    let subscription: any = null;
+    if (BackHandler && typeof BackHandler.addEventListener === 'function') {
+      subscription = BackHandler.addEventListener('hardwareBackPress', onBackPress as any);
+    } else if (BackHandler && typeof (BackHandler as any).addListener === 'function') {
+      subscription = (BackHandler as any).addListener('hardwareBackPress', onBackPress);
+    }
+
+    return () => {
+      try {
+        if (subscription && typeof subscription.remove === 'function') {
+          subscription.remove();
+          return;
+        }
+        // defensive fallback: some environments (web/older RN) don't expose
+        // removeEventListener; guard the call and swallow errors.
+        const removeFn = (BackHandler as any)?.removeEventListener;
+        if (typeof removeFn === 'function') {
+          removeFn.call(BackHandler, 'hardwareBackPress', onBackPress as any);
+        }
+      } catch (_err) {
+        // ignore cleanup errors
+      }
+    };
+  }, [canGoBack]);
+
+  // NetInfo listener to auto-retry when connectivity changes
+  useEffect(() => {
+    const unsub = NetInfo.addEventListener((state) => {
+      if (state.isConnected && errorKind) {
+        // network returned: clear error and reload
+        setErrorKind(null);
+        try {
+          webRef.current?.reload();
+        } catch (_e) {}
+      }
+    });
+
+    return () => unsub();
+  }, [errorKind]);
+
+  const onNavigationStateChange = (navState: any) => {
+    setCanGoBack(navState.canGoBack);
+  };
+
+  const handleWebError = (event: any) => {
+    const native = event?.nativeEvent || {};
+    const code = native.code;
+    // Stop loading to avoid default error pages
+    try {
+      webRef.current?.stopLoading();
+    } catch (_e) {}
+
+    // Check network first
+    NetInfo.fetch().then((state) => {
+      if (!state.isConnected) {
+        setErrorKind('no-internet');
+        return;
+      }
+
+      // Map common WebView error codes to friendly types
+      switch (code) {
+        case -2: // ERROR_HOST_LOOKUP
+          setErrorKind('dns');
+          break;
+        case -6: // ERROR_CONNECT
+        case -7: // ERROR_IO
+          setErrorKind('connection-refused');
+          break;
+        case -8: // ERROR_TIMEOUT
+          setErrorKind('timeout');
+          break;
+        default:
+          setErrorKind('unknown');
+      }
+    });
+  };
+
+  const onShouldStartLoadWithRequest = (request: any) => {
+    const { url } = request;
+    if (!url) return true;
+    // Open external links outside the domain in external browser
+    if (url.startsWith('http') && !url.startsWith(START_URL)) {
+      Linking.openURL(url).catch(() => {});
+      return false;
+    }
+
+    // handle mailto:, tel: etc.
+    if (url.startsWith('mailto:') || url.startsWith('tel:')) {
+      Linking.openURL(url).catch(() => {});
+      return false;
+    }
+
+    return true;
+  };
+
+  const handleHttpError = (event: any) => {
+    const native = event?.nativeEvent || {};
+    const status = native.statusCode;
+    try {
+      webRef.current?.stopLoading();
+    } catch (_e) {}
+    if (status >= 500) setErrorKind('server-down');
+    else setErrorKind('server-error');
+  };
+
+  const handleRetry = async () => {
+    const state = await NetInfo.fetch();
+    if (!state.isConnected) {
+      setErrorKind('no-internet');
+      return;
+    }
+    setErrorKind(null);
+    try {
+      webRef.current?.reload();
+    } catch (_e) {}
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1 }}>
+      {loading && (
+        <View style={[styles.loading, { pointerEvents: 'none' }]}>
+          <ActivityIndicator size="large" color="#d63031" />
+        </View>
+      )}
+      <WebView
+        ref={webRef}
+        source={{ uri: START_URL }}
+        originWhitelist={["*"]}
+        onLoadEnd={() => setLoading(false)}
+        onLoadStart={() => setLoading(true)}
+        onError={handleWebError}
+        onHttpError={handleHttpError}
+        onNavigationStateChange={onNavigationStateChange}
+        startInLoadingState
+        onShouldStartLoadWithRequest={onShouldStartLoadWithRequest}
+        javaScriptEnabled
+        domStorageEnabled
+        mixedContentMode={Platform.OS === 'android' ? 'always' : 'never'}
+      />
+      <WebViewErrorOverlay visible={!!errorKind} kind={errorKind ?? 'unknown'} onRetry={handleRetry} />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
-  },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
+  loading: {
     position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    zIndex: 10,
   },
 });
